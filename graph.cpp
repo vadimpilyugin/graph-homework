@@ -1,21 +1,11 @@
 #include <cstdint>
 #include <cstdio>
-#include <map>
 #include <vector>
 #include <algorithm>
 
 #include "graph.h"
 
 extern bool verbose;
-
-template<typename Key, typename Value>
-std::vector<Key> keys(std::map<Key,Value> mp) {
-  std::vector<Key> v;
-  for (auto &pair: mp) {
-    v.push_back(std::get<0>(pair));
-  }
-  return v;
-}
 
 void out_weights(std::vector<double> v) {
   printf("[");
@@ -71,9 +61,9 @@ void output_graph_info(graph g) {
 void is_undirected(graph g) {
 
   printf("========== is_undirected ==========\n\n");
-  std::map<uint32_t, std::map<uint32_t,std::vector<double> > > all_adj;
+  std::unordered_map<uint32_t, std::unordered_map<uint32_t,std::vector<double> > > all_adj;
   for (uint32_t start_v = 0; start_v < g.n; start_v++) {
-    std::map<uint32_t,std::vector<double> > adj;
+    std::unordered_map<uint32_t,std::vector<double> > adj;
 
     for (uint64_t edge_id = g.rowsIndices[start_v];
       edge_id < g.rowsIndices[start_v+1]; edge_id++) {
@@ -120,7 +110,7 @@ void is_undirected(graph g) {
 void is_multigraph(graph g) {
   printf("========== is_multigraph ==========\n\n");
   for (uint32_t vertex = 0; vertex < g.n; vertex++) {
-    std::map<uint32_t,int> adj;
+    std::unordered_map<uint32_t,int> adj;
     for (uint64_t edge_id = g.rowsIndices[vertex];
       edge_id < g.rowsIndices[vertex+1]; edge_id++) {
       adj[g.endV[edge_id]]++;

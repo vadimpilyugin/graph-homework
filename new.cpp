@@ -8,13 +8,14 @@
 #include "mpi.h"
 
 #include "io.h"
+#include "dsu.h"
 #include "graph.h"
 #include "algorithm.h"
 
 bool verbose;
 
 void usage() {
-  printf("Usage: ./main -input <rmat-x> [-verbose] -nproc <1-64>\n");
+  printf("Usage: ./main -input <rmat-x> [-verbose] -output <rmat-x.mst>\n");
 }
 
 void model_process(int myrank, int nproc, uint32_t n, uint64_t m,
@@ -56,26 +57,22 @@ typedef struct {
 
 int main(int argc, char **argv)
 {
-  if (argc < 2) {
+  if (argc < 5) {
     usage();
     return 1;
   }
 
   const char *input_fn;
-  int nproc = 1;
+  const char *output_fn;
   for (int i = 0; i < argc; i++) {
     if (!strcmp(argv[i], "-input")) {
       input_fn = argv[i+1];
     }
+    if (!strcmp(argv[i], "-output")) {
+      output_fn = argv[i+1];
+    }
     if (!strcmp(argv[i], "-verbose")) {
       verbose = true;
-    }
-    if (!strcmp(argv[i], "-nproc")) {
-      nproc = atoi(argv[i+1]);
-      if (nproc == 0) {
-        perror("wrong value for nproc");
-        return 5;
-      }
     }
   }
 
@@ -93,10 +90,16 @@ int main(int argc, char **argv)
   }
 
   loc_graph loc_g = scatter_graph(g);
-  // print_local_info(loc_g);
-  // print_local_vertices(loc_g);
-  char *loc_selected_edges = iterations(loc_g);
+
+  // union-find structure for all n vertices
+  DSU d = InitDSU(loc_g.n);
+
+  char *loc_selected_edges = iterations(loc_g, d);
   char *selected_edges = gather_selected(loc_g, loc_selected_edges);
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (myrank == MASTER)
+    write_tree(g, selected_edges, d, output_fn);
 
   return 0;
 }

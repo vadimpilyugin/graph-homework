@@ -1,5 +1,8 @@
 #pragma once
 
+#include <vector>
+#include <unordered_map>
+
 typedef struct
 {
   uint32_t n;
@@ -31,3 +34,12 @@ void output_graph_info(graph g);
 void is_undirected(graph g);
 void is_multigraph(graph g);
 void out_indices_32(uint32_t *v, uint32_t size);
+
+template<typename Key, typename Value>
+std::vector<Key> keys(std::unordered_map<Key,Value> mp) {
+  std::vector<Key> v;
+  for (auto &pair: mp) {
+    v.push_back(std::get<0>(pair));
+  }
+  return v;
+}

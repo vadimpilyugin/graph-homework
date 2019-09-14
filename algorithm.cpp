@@ -9,9 +9,13 @@
 #define TAG_0 0
 #define COLOR_0 0
 #define COLOR_1 1
-#define MASTER 0
 #define SELECTED 1
 #define UNSELECTED 0
+
+MPI_Comm first_group;
+MPI_Comm second_group;
+
+extern bool verbose;
 
 uint64_t start_idx(int myrank, int nproc, uint64_t m) {
 
@@ -127,37 +131,36 @@ loc_graph scatter_graph(graph g) {
     }
 
     // second step: #0 ~~> #0..#leftover-1, #leftover ~~> #leftover..#nproc-1
-    MPI_Comm comm;
     if (myrank < leftover) {
-      success = MPI_Comm_split(MPI_COMM_WORLD, COLOR_0, myrank, &comm);
-      assert(success == MPI_SUCCESS && "comm create for first scatter step failed");
+      success = MPI_Comm_split(MPI_COMM_WORLD, COLOR_0, myrank, &first_group);
+      assert(success == MPI_SUCCESS && "first_group create for first scatter step failed");
 
       success = MPI_Scatter(
         g.endV, my_batch_size, MPI_UINT32_T,
         locEndV, my_batch_size, MPI_UINT32_T,
-        MASTER, comm);
+        MASTER, first_group);
       assert(success == MPI_SUCCESS && "scatter of g.endV failed");
 
       success = MPI_Scatter(
         g.weights, my_batch_size, MPI_DOUBLE,
         locWeights, my_batch_size, MPI_DOUBLE,
-        MASTER, comm);
+        MASTER, first_group);
       assert(success == MPI_SUCCESS && "scatter of g.weights failed");
 
     } else {
-      success = MPI_Comm_split(MPI_COMM_WORLD, COLOR_1, myrank-leftover, &comm);
-      assert(success == MPI_SUCCESS && "comm create for first scatter step failed");
+      success = MPI_Comm_split(MPI_COMM_WORLD, COLOR_1, myrank-leftover, &second_group);
+      assert(success == MPI_SUCCESS && "second_group create for first scatter step failed");
 
       success = MPI_Scatter(
         newEndV, my_batch_size, MPI_UINT32_T,
         locEndV, my_batch_size, MPI_UINT32_T,
-        MASTER, comm);
+        MASTER, second_group);
       assert(success == MPI_SUCCESS && "scatter of newEndV failed");
 
       success = MPI_Scatter(
         newWeights, my_batch_size, MPI_DOUBLE,
         locWeights, my_batch_size, MPI_DOUBLE,
-        MASTER, comm);
+        MASTER, second_group);
       assert(success == MPI_SUCCESS && "scatter of newWeights failed");
     }
 
@@ -277,7 +280,7 @@ typedef struct {
   int rank;
 } MinLocItem;
 
-char *iterations(loc_graph g) {
+char *iterations(loc_graph g, DSU &d) {
   MPI_Barrier(MPI_COMM_WORLD);
   uint32_t n = g.n;
   
@@ -292,9 +295,6 @@ char *iterations(loc_graph g) {
   
   // pair of ptrs and mins acts like a hash table
   // mapping uint32_t my_root ~~> struct MinConn
-  
-  // union-find structure for all n vertices
-  DSU d = InitDSU(n);
 
   // array for determining the shortest edges across all processes
   MinLocItem *min_loc = (MinLocItem *)malloc(n * sizeof(MinLocItem));
@@ -317,20 +317,23 @@ char *iterations(loc_graph g) {
   assert(selected_edges && "calloc of selected_edges failed");
 
   for (uint32_t iter = 0; ; iter++) {
-    printf("\n============== Iteration %u ==============\n\n", iter);
+    if (verbose)
+      printf("\n============== Iteration %u ==============\n\n", iter);
     for (uint32_t i = 0; i < n; i++) {
       ptrs[i] = n;
     }
     mins_len = 0;
     uint64_t edge_id = g.start_i;
     for (uint32_t vertex = g.start_v; edge_id < g.end_i; vertex++) {
-      printf("%d: checking %u\n", g.myrank, vertex);
+      if (verbose)
+        printf("%d: checking %u\n", g.myrank, vertex);
       MinConn curr_min;
       uint32_t struct_idx;
       uint32_t my_root = FindDSU(d, vertex);
       if (ptrs[my_root] == n) {
-        printf("%d: Found new component: %u\n",
-          g.myrank, my_root);
+        if (verbose)
+          printf("%d: Found new component: %u\n",
+            g.myrank, my_root);
         ptrs[my_root] = mins_len;
 
         mins[mins_len].weight = DBL_MAX;
@@ -362,20 +365,23 @@ char *iterations(loc_graph g) {
         }
       }
       if (curr_min.weight == DBL_MAX) {
-        printf("%d: setting mins[%d] = (+inf, %u ~~> %u, %lu)\n",
-          g.myrank,
-          struct_idx, curr_min.my_root,
-          curr_min.other_root, curr_min.edge_id);
+        if (verbose)
+          printf("%d: setting mins[%d] = (+inf, %u ~~> %u [%u], %lu)\n",
+            g.myrank,
+            struct_idx, curr_min.my_root,
+            curr_min.other_root, g.locEndV[curr_min.edge_id], curr_min.edge_id);
       } else {
-        printf("%d: setting mins[%d] = (%lf, %u ~~> %u, %lu)\n",
-          g.myrank,
-          struct_idx, curr_min.weight, curr_min.my_root,
-          curr_min.other_root, curr_min.edge_id);
+        if (verbose)
+          printf("%d: setting mins[%d] = (%lf, %u ~~> %u [%u], %lu)\n",
+            g.myrank,
+            struct_idx, curr_min.weight, curr_min.my_root,
+            curr_min.other_root, g.locEndV[curr_min.edge_id], curr_min.edge_id);
       }
       mins[struct_idx] = curr_min;
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
+    if (verbose)
+      MPI_Barrier(MPI_COMM_WORLD);
 
     // exchange section
     // unset selected components
@@ -402,7 +408,7 @@ char *iterations(loc_graph g) {
       MASTER, MPI_COMM_WORLD);
     assert(success == MPI_SUCCESS && "reduce of min_loc failed");
 
-    if (g.myrank == MASTER) {
+    if (g.myrank == MASTER && verbose) {
       printf("This is where the true minimum lies:\n");
       for (uint32_t i = 0; i < n; i++) {
         if (out_min_loc[i].w == DBL_MAX) {
@@ -414,7 +420,8 @@ char *iterations(loc_graph g) {
         }
       }
     }
-    MPI_Barrier(MPI_COMM_WORLD);
+    if (verbose)
+      MPI_Barrier(MPI_COMM_WORLD);
 
     // broadcast it back to all processes
     success = MPI_Bcast(out_min_loc, n, MPI_DOUBLE_INT, MASTER, MPI_COMM_WORLD);
@@ -422,26 +429,30 @@ char *iterations(loc_graph g) {
     
 
     // set minimum components
+    if (verbose)
+      for (uint32_t i = 0; i < mins_len; i++) {
+        auto my_root = mins[i].my_root;
+        if (out_min_loc[my_root].rank != g.myrank && 
+          out_min_loc[my_root].w != DBL_MAX) {
+
+          printf("%d: minimum edge %u ~~> %u [weight %lf] was not selected, %d != %d\n",
+            g.myrank, mins[i].my_root, mins[i].other_root,
+            mins[i].weight, out_min_loc[mins[i].my_root].rank, g.myrank);
+
+        } else if (out_min_loc[my_root].rank == g.myrank) {
+
+          if (mins[i].weight == DBL_MAX) {
+            printf("%d: minimum edge %u ~~> %u [weight +inf] was selected\n",
+              g.myrank, mins[i].my_root, mins[i].other_root);
+          } else {
+            printf("%d: minimum edge %u ~~> %u [weight %lf] was selected\n",
+              g.myrank, mins[i].my_root, mins[i].other_root, mins[i].weight);
+          }
+
+        }
+      }
     for (uint32_t i = 0; i < mins_len; i++) {
       auto my_root = mins[i].my_root;
-      if (out_min_loc[my_root].rank != g.myrank && 
-        out_min_loc[my_root].w != DBL_MAX) {
-
-        printf("%d: minimum edge %u ~~> %u [weight %lf] was not selected, %d != %d\n",
-          g.myrank, mins[i].my_root, mins[i].other_root,
-          mins[i].weight, out_min_loc[mins[i].my_root].rank, g.myrank);
-
-      } else if (out_min_loc[my_root].rank == g.myrank) {
-
-        if (mins[i].weight == DBL_MAX) {
-          printf("%d: minimum edge %u ~~> %u [weight +inf] was selected\n",
-            g.myrank, mins[i].my_root, mins[i].other_root);
-        } else {
-          printf("%d: minimum edge %u ~~> %u [weight %lf] was selected\n",
-            g.myrank, mins[i].my_root, mins[i].other_root, mins[i].weight);
-        }
-
-      }
       if (out_min_loc[my_root].rank == g.myrank &&
         out_min_loc[my_root].w != DBL_MAX) {
 
@@ -462,7 +473,7 @@ char *iterations(loc_graph g) {
       MASTER, MPI_COMM_WORLD);
     assert(success == MPI_SUCCESS && "reduce of selected_comps failed");
 
-    if (g.myrank == MASTER) {
+    if (g.myrank == MASTER && verbose) {
       printf("True selected components:\n");
       for (uint32_t i = 0; i < n; i++) {
         if (out_selected[i] == n) {
@@ -472,7 +483,8 @@ char *iterations(loc_graph g) {
         }
       }
     }
-    MPI_Barrier(MPI_COMM_WORLD);
+    if (verbose)
+      MPI_Barrier(MPI_COMM_WORLD);
 
     // broadcast it back to all processes
     success = MPI_Bcast(out_selected, n, MPI_UINT32_T, MASTER, MPI_COMM_WORLD);
@@ -491,21 +503,24 @@ char *iterations(loc_graph g) {
           if (my_root > other_root) {
             min_sel = other_root;
           }
-          printf("%d: found loop %u ~~> %u, %u ~~> %u\n",
-            g.myrank, my_root, other_root, other_root, my_root);
+          if (verbose)
+            printf("%d: found loop %u ~~> %u, %u ~~> %u\n",
+              g.myrank, my_root, other_root, other_root, my_root);
           out_selected[my_root] = min_sel;
           out_selected[other_root] = min_sel;
           if (my_root == min_sel) {
             // break the loop
-            printf("%d: breaking the loop: %u ~/~> %u\n",
-              g.myrank, my_root, other_root);
+            if (verbose)
+              printf("%d: breaking the loop: %u ~/~> %u\n",
+                g.myrank, my_root, other_root);
             selected_edges[mins[i].edge_id] = UNSELECTED;
           }
         }
       }
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
+    if (verbose)
+      MPI_Barrier(MPI_COMM_WORLD);
 
     // broadcast correct selections
     success = MPI_Reduce(
@@ -514,7 +529,7 @@ char *iterations(loc_graph g) {
       MASTER, MPI_COMM_WORLD);
     assert(success == MPI_SUCCESS && "reduce of out_selected failed");
 
-    if (g.myrank == MASTER) {
+    if (g.myrank == MASTER && verbose) {
       printf("True pre-DSU without cycles:\n");
       for (uint32_t i = 0; i < n; i++) {
         if (selected_comps[i] == n) {
@@ -526,7 +541,9 @@ char *iterations(loc_graph g) {
         }
       }
     }
-    MPI_Barrier(MPI_COMM_WORLD);
+
+    if (verbose)
+      MPI_Barrier(MPI_COMM_WORLD);
 
     // broadcast it back to all processes
     success = MPI_Bcast(selected_comps, n, MPI_UINT32_T, MASTER, MPI_COMM_WORLD);
@@ -536,29 +553,18 @@ char *iterations(loc_graph g) {
     bool changed = false;
     for (uint32_t i = 0; i < n; i++) {
       if (selected_comps[i] != n && selected_comps[i] != i) {
-        if (g.myrank == 0 && (i == 8 || selected_comps[i] == 8 ||
-            i == 0 || selected_comps[i] == 0)) {
-          printf("0: calling UnionDSU(%u, %u)\n", i, selected_comps[i]);
-          printf("0: FindDSU(%u) = %u\n", i, FindDSU(d,i));
-          printf("0: FindDSU(%u) = %u\n", selected_comps[i], FindDSU(d,selected_comps[i]));
-        }
         UnionDSU(d, i, selected_comps[i]);
         changed = true;
-        if (g.myrank == 0 && (i == 8 || selected_comps[i] == 8 ||
-            i == 0 || selected_comps[i] == 0)) {
-          printf("0: after calling UnionDSU(%u, %u)\n", i, selected_comps[i]);
-          printf("0: FindDSU(%u) = %u\n", i, FindDSU(d,i));
-          printf("0: FindDSU(%u) = %u\n", selected_comps[i], FindDSU(d,selected_comps[i]));
-        }
       }
     }
-    if (g.myrank == MASTER) {
+    if (g.myrank == MASTER && verbose) {
       printf("After DSU union-find:\n");
       for (uint32_t i = 0; i < n; i++) {
         printf("Component %u: %u\n", i, FindDSU(d, i));
       }
     }
-    MPI_Barrier(MPI_COMM_WORLD);
+    if (verbose)
+      MPI_Barrier(MPI_COMM_WORLD);
     if (!changed) {
       break;
     }
@@ -567,12 +573,14 @@ char *iterations(loc_graph g) {
   return selected_edges;
 }
 
-char *gather_selected(loc_graph loc_g, char *loc_selected_edges) {
+char *gather_selected(loc_graph g, char *loc_selected_edges) {
+  // collect locally selected edges on #0
 
-  uint32_t n = g.n;
+  int success;
+
   uint64_t m = g.m;
-  auto myrank = loc_g.myrank;
-  auto nproc = loc_g.nproc;
+  auto myrank = g.myrank;
+  auto nproc = g.nproc;
   uint64_t batch_size = m / nproc;
   int leftover = m % nproc;
   uint64_t my_batch_size = batch_size;
@@ -589,90 +597,55 @@ char *gather_selected(loc_graph loc_g, char *loc_selected_edges) {
   if (leftover == 0) {
     // if number of edges is divisible by nproc
     success = MPI_Gather(
-      
-    )
-    success = MPI_Scatter(
-      g.endV, my_batch_size, MPI_UINT32_T,
-      locEndV, my_batch_size, MPI_UINT32_T,
+      loc_selected_edges, my_batch_size, MPI_CHAR,
+      selected_edges, my_batch_size, MPI_CHAR,
       MASTER, MPI_COMM_WORLD);
-    assert(success == MPI_SUCCESS && "scatter of g.endV failed");
-    success = MPI_Scatter(
-      g.weights, my_batch_size, MPI_DOUBLE,
-      locWeights, my_batch_size, MPI_DOUBLE,
-      MASTER, MPI_COMM_WORLD);
-    assert(success == MPI_SUCCESS && "scatter of g.weights failed");
+    assert(success == MPI_SUCCESS && "gather of selected_edges failed");
     // and that's it!
   } else {
     // else if the number of edges is not divisible by nproc
-    uint32_t *newEndV;
-    double *newWeights;
+    char *newSelectedEdges;
     uint64_t first_part_len = leftover * my_batch_size;
     uint64_t second_part_len = (nproc - leftover) * batch_size;
 
-    // perform two-step scatter
-    // first step: #0 ~~> #leftover
-    if (i_am_the_master) {
-      success = MPI_Send(
-        g.endV + first_part_len, second_part_len, MPI_UINT32_T,
-        leftover, TAG_0, MPI_COMM_WORLD);
-      assert(success == MPI_SUCCESS && "send of g.endV failed");
-      success = MPI_Send(
-        g.weights + first_part_len, second_part_len, MPI_DOUBLE,
-        leftover, TAG_0, MPI_COMM_WORLD);
-      assert(success == MPI_SUCCESS && "send of g.weights failed");
-    }
+    // perform two-step gather
+    // allocate second-part vector
     if (myrank == leftover) {
-      newEndV = (uint32_t *)malloc(second_part_len * sizeof(uint32_t));
-      assert(newEndV && "malloc of newEndV failed");
-      newWeights = (double *)malloc(second_part_len * sizeof(double));
-      assert(newWeights && "malloc of newWeights failed");
-      success = MPI_Recv(
-        newEndV, second_part_len, MPI_UINT32_T,
-        MASTER, TAG_0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      assert(success == MPI_SUCCESS && "receive of second part endV failed");
-      success = MPI_Recv(
-        newWeights, second_part_len, MPI_DOUBLE,
-        MASTER, TAG_0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      assert(success == MPI_SUCCESS && "receive of second part weights failed");
+      newSelectedEdges = (char *)malloc(second_part_len * sizeof(char));
+      assert(newSelectedEdges && "malloc of newSelectedEdges failed");
     }
-
-    // second step: #0 ~~> #0..#leftover-1, #leftover ~~> #leftover..#nproc-1
-    MPI_Comm comm;
+    // first step: #leftover..#nproc-1 ~~> #leftover
+    if (myrank >= leftover) {
+      success = MPI_Gather(
+        loc_selected_edges, my_batch_size, MPI_CHAR,
+        newSelectedEdges, my_batch_size, MPI_CHAR,
+        MASTER, second_group);
+      assert(success == MPI_SUCCESS && "gather of newSelectedEdges failed");
+    }
+    // second step: #0..#leftover-1 ~~> #0
     if (myrank < leftover) {
-      success = MPI_Comm_split(MPI_COMM_WORLD, COLOR_0, myrank, &comm);
-      assert(success == MPI_SUCCESS && "comm create for first scatter step failed");
-
-      success = MPI_Scatter(
-        g.endV, my_batch_size, MPI_UINT32_T,
-        locEndV, my_batch_size, MPI_UINT32_T,
-        MASTER, comm);
-      assert(success == MPI_SUCCESS && "scatter of g.endV failed");
-
-      success = MPI_Scatter(
-        g.weights, my_batch_size, MPI_DOUBLE,
-        locWeights, my_batch_size, MPI_DOUBLE,
-        MASTER, comm);
-      assert(success == MPI_SUCCESS && "scatter of g.weights failed");
-
-    } else {
-      success = MPI_Comm_split(MPI_COMM_WORLD, COLOR_1, myrank-leftover, &comm);
-      assert(success == MPI_SUCCESS && "comm create for first scatter step failed");
-
-      success = MPI_Scatter(
-        newEndV, my_batch_size, MPI_UINT32_T,
-        locEndV, my_batch_size, MPI_UINT32_T,
-        MASTER, comm);
-      assert(success == MPI_SUCCESS && "scatter of newEndV failed");
-
-      success = MPI_Scatter(
-        newWeights, my_batch_size, MPI_DOUBLE,
-        locWeights, my_batch_size, MPI_DOUBLE,
-        MASTER, comm);
-      assert(success == MPI_SUCCESS && "scatter of newWeights failed");
+      success = MPI_Gather(
+        loc_selected_edges, my_batch_size, MPI_CHAR,
+        selected_edges, my_batch_size, MPI_CHAR,
+        MASTER, first_group);
+      assert(success == MPI_SUCCESS && "gather of selected_edges from first_group failed");
+    }
+    // last step: #leftover ~~> #0
+    if (myrank == leftover) {
+      success = MPI_Send(
+        newSelectedEdges, second_part_len, MPI_CHAR,
+        MASTER, TAG_0, MPI_COMM_WORLD);
+      assert(success == MPI_SUCCESS && "send of newSelectedEdges failed");
+    } else if (myrank == MASTER) {
+      success = MPI_Recv(
+        selected_edges + first_part_len, second_part_len, MPI_CHAR,
+        leftover, TAG_0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      assert(success == MPI_SUCCESS && "receive of newSelectedEdges failed");
     }
 
     if (myrank == leftover) {
-      free(newEndV);
-      free(newWeights);
+      free(newSelectedEdges);
     }
+  }
+  return selected_edges;
 }

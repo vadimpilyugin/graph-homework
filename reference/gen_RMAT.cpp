@@ -169,6 +169,11 @@ graph_t read_mat(std::string filename) {
         is_prev = true;
     }
     starts.push_back(idx);
+    printf("%s\n", "Indices:");
+    for (int i = 0; i < starts.size(); i++) {
+        printf("%d, ", i);
+    }
+    printf("\n");
     printf("%s\n", "Starts:");
     for (auto i: starts) {
         printf("%d, ", i);
@@ -411,8 +416,8 @@ int main (int argc, char** argv)
 {
     graph_t g;
     
-    // g = read_mat("test-mat.1");
-    // writeBinaryGraph(&g, "test-mat-1");
+    // g = read_mat(argv[1]);
+    // writeBinaryGraph(&g, argv[2]);
 
     init(argc, argv, &g);
     gen_RMAT_graph(&g);

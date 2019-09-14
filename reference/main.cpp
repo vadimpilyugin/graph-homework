@@ -14,7 +14,7 @@ using namespace std;
 char inFilename[FNAME_LEN];
 char outFilename[FNAME_LEN];
 
-int nIters = 64;
+int nIters = 1;
 #if defined(CLOCK_MONOTONIC)
 #define CLOCK CLOCK_MONOTONIC
 #elif defined(CLOCK_REALTIME)
@@ -65,9 +65,24 @@ void write_output_information(forest_t *trees, char *filename)
 {
     FILE *F = fopen(filename, "wb");
     assert(fwrite(&trees->numTrees, sizeof(vertex_id_t), 1, F) == 1);
+    printf("numTrees [%d]: 1 x %lu = %lu bytes\n", 
+        trees->numTrees, sizeof(vertex_id_t), sizeof(vertex_id_t));
     assert(fwrite(&trees->numEdges, sizeof(edge_id_t), 1, F) == 1);
+    printf("numEdges [%lu]: 1 x %lu = %lu bytes\n",
+        trees->numEdges, sizeof(edge_id_t), sizeof(edge_id_t));
     assert(fwrite(trees->p_edge_list, sizeof(edge_id_t), 2*trees->numTrees, F) == 2*trees->numTrees);
+    printf("p_edge_list: %d x %lu = %lu bytes\n",
+        2*trees->numTrees, sizeof(edge_id_t), 2*trees->numTrees*sizeof(edge_id_t));
+    for (unsigned int i = 0; i < 2*trees->numTrees; i++) {
+        printf("p_edge_list[%d] = %lu\n", i, trees->p_edge_list[i]);
+    }
     assert(fwrite(trees->edge_id, sizeof(edge_id_t), trees->numEdges, F) == trees->numEdges);
+    printf("edge_id: %lu x %lu = %lu bytes\n",
+        trees->numEdges, sizeof(edge_id_t), sizeof(edge_id_t) * trees->numEdges
+    );
+    for (unsigned int i = 0; i < trees->numEdges; i++) {
+        printf("edge_id[%d] = %lu\n", i, trees->edge_id[i]);
+    }
     fclose(F);
 }
 
