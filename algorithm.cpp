@@ -364,18 +364,18 @@ char *iterations(loc_graph g, DSU &d) {
           curr_min.edge_id = loc_edge_id;
         }
       }
-      if (curr_min.weight == DBL_MAX) {
-        if (verbose)
-          printf("%d: setting mins[%d] = (+inf, %u ~~> %u [%u], %lu)\n",
+      if (verbose) {
+        if (curr_min.weight == DBL_MAX) {
+          printf("%d: setting mins[%d] = (+inf, %u ~~> %u, %lu)\n",
             g.myrank,
             struct_idx, curr_min.my_root,
-            curr_min.other_root, g.locEndV[curr_min.edge_id], curr_min.edge_id);
-      } else {
-        if (verbose)
+            curr_min.other_root, curr_min.edge_id);
+        } else {
           printf("%d: setting mins[%d] = (%lf, %u ~~> %u [%u], %lu)\n",
             g.myrank,
             struct_idx, curr_min.weight, curr_min.my_root,
             curr_min.other_root, g.locEndV[curr_min.edge_id], curr_min.edge_id);
+        }
       }
       mins[struct_idx] = curr_min;
     }
@@ -402,11 +402,11 @@ char *iterations(loc_graph g, DSU &d) {
     }
 
     // find overall minimum
-    int success = MPI_Reduce(
+    int success = MPI_Allreduce(
       min_loc, out_min_loc,
       n, MPI_DOUBLE_INT, MPI_MINLOC,
-      MASTER, MPI_COMM_WORLD);
-    assert(success == MPI_SUCCESS && "reduce of min_loc failed");
+      MPI_COMM_WORLD);
+    assert(success == MPI_SUCCESS && "allreduce of min_loc failed");
 
     if (g.myrank == MASTER && verbose) {
       printf("This is where the true minimum lies:\n");
@@ -422,10 +422,6 @@ char *iterations(loc_graph g, DSU &d) {
     }
     if (verbose)
       MPI_Barrier(MPI_COMM_WORLD);
-
-    // broadcast it back to all processes
-    success = MPI_Bcast(out_min_loc, n, MPI_DOUBLE_INT, MASTER, MPI_COMM_WORLD);
-    assert(success == MPI_SUCCESS && "broadcast of out_min_loc failed");
     
 
     // set minimum components
@@ -466,12 +462,12 @@ char *iterations(loc_graph g, DSU &d) {
       }
     }
 
-    // broadcast each component's choice of another component
-    success = MPI_Reduce(
+    // find out each component's choice of another component
+    success = MPI_Allreduce(
       selected_comps, out_selected,
       n, MPI_UINT32_T, MPI_MIN,
-      MASTER, MPI_COMM_WORLD);
-    assert(success == MPI_SUCCESS && "reduce of selected_comps failed");
+      MPI_COMM_WORLD);
+    assert(success == MPI_SUCCESS && "allreduce of selected_comps failed");
 
     if (g.myrank == MASTER && verbose) {
       printf("True selected components:\n");
@@ -485,10 +481,6 @@ char *iterations(loc_graph g, DSU &d) {
     }
     if (verbose)
       MPI_Barrier(MPI_COMM_WORLD);
-
-    // broadcast it back to all processes
-    success = MPI_Bcast(out_selected, n, MPI_UINT32_T, MASTER, MPI_COMM_WORLD);
-    assert(success == MPI_SUCCESS && "broadcast of out_selected failed");
 
     // break loops
     for (uint32_t i = 0; i < mins_len; i++) {
@@ -523,11 +515,11 @@ char *iterations(loc_graph g, DSU &d) {
       MPI_Barrier(MPI_COMM_WORLD);
 
     // broadcast correct selections
-    success = MPI_Reduce(
+    success = MPI_Allreduce(
       out_selected, selected_comps,
       n, MPI_UINT32_T, MPI_MIN,
-      MASTER, MPI_COMM_WORLD);
-    assert(success == MPI_SUCCESS && "reduce of out_selected failed");
+      MPI_COMM_WORLD);
+    assert(success == MPI_SUCCESS && "allreduce of out_selected failed");
 
     if (g.myrank == MASTER && verbose) {
       printf("True pre-DSU without cycles:\n");
@@ -544,10 +536,6 @@ char *iterations(loc_graph g, DSU &d) {
 
     if (verbose)
       MPI_Barrier(MPI_COMM_WORLD);
-
-    // broadcast it back to all processes
-    success = MPI_Bcast(selected_comps, n, MPI_UINT32_T, MASTER, MPI_COMM_WORLD);
-    assert(success == MPI_SUCCESS && "broadcast of selected_comps failed");
 
     // join selected components
     bool changed = false;
@@ -569,6 +557,13 @@ char *iterations(loc_graph g, DSU &d) {
       break;
     }
   }
+
+  free(ptrs);
+  free(mins);
+  free(min_loc);
+  free(out_min_loc);
+  free(selected_comps);
+  free(out_selected);
 
   return selected_edges;
 }

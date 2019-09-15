@@ -81,6 +81,12 @@ void write_tree(graph g, char *selected_edges, DSU &d, const std::string fn) {
   fclose(f);
 }
 
+void free_graph(graph g) {
+  free(g.rowsIndices);
+  free(g.endV);
+  free(g.weights);
+}
+
 graph read_graph(const std::string fn) {
   FILE *f = fopen(fn.c_str(), "rb");
   if (f == NULL) {

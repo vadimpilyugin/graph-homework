@@ -18,36 +18,6 @@ void usage() {
   printf("Usage: ./main -input <rmat-x> [-verbose] -output <rmat-x.mst>\n");
 }
 
-void model_process(int myrank, int nproc, uint32_t n, uint64_t m,
-  uint32_t *endV, double *weights, uint64_t *rowsIndices) {
-
-  uint64_t batch_size = m / nproc;
-  uint64_t leftover = m % nproc;
-
-  uint64_t my_batch_size = batch_size;
-  if (uint32_t(myrank) < leftover) {
-    my_batch_size++;
-  }
-
-  uint64_t start_i = start_idx(myrank, nproc, m);
-  uint32_t start_v = 0;
-
-  // не ошибка: i, i+1 => < n
-  for (uint32_t i = 0; i < n; i++) {
-    if (rowsIndices[i] <= start_i && rowsIndices[i+1] > start_i) {
-      start_v = i;
-      break;
-    }
-  }
-
-  printf("My rank = %d\nMy batch size: %ld\nLeftover: %ld\n",
-    myrank, my_batch_size, leftover);
-  printf("Start vertex: %u\n", start_v);
-  // printf("my endV: ");
-  // out_indices_32(endV, my_batch_size);
-  printf("\n");
-}
-
 typedef struct {
   double weight;
   uint32_t my_root;
@@ -96,10 +66,16 @@ int main(int argc, char **argv)
 
   char *loc_selected_edges = iterations(loc_g, d);
   char *selected_edges = gather_selected(loc_g, loc_selected_edges);
+  free(loc_selected_edges);
 
-  MPI_Barrier(MPI_COMM_WORLD);
-  if (myrank == MASTER)
+  if (myrank == MASTER) {
     write_tree(g, selected_edges, d, output_fn);
+    free_graph(g);
+    FreeDSU(d);
+    free(selected_edges);
+  }
+
+  MPI_Finalize();
 
   return 0;
 }
