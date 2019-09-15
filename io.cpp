@@ -1,6 +1,7 @@
 #include "cstdlib"
 #include "cstdio"
 #include "cstdint"
+#include "cassert"
 
 #include <unordered_map>
 #include <vector>
@@ -10,15 +11,29 @@
 
 extern bool verbose;
 
+std::vector<uint32_t> keys(std::unordered_map<uint32_t,std::vector<uint64_t>> mp) {
+  std::vector<uint32_t> v;
+  std::unordered_map<uint32_t,std::vector<uint64_t>>::iterator it;
+  for (it = mp.begin(); it != mp.end(); it++) {
+    v.push_back(it -> first);
+  }
+  return v;
+}
+
+std::unordered_map <uint32_t, double> trees_weight;
+
+bool weight_comparator(int i, int j) {
+  return trees_weight[i] > trees_weight[j];
+}
+
 void write_tree(graph g, char *selected_edges, DSU &d, const std::string fn) {
   std::unordered_map <uint32_t, std::vector<uint64_t>> component_edges;
-  std::unordered_map <uint32_t, double> trees_weight;
   uint64_t size = 0;
   for (uint32_t vertex = 0; vertex < g.n; vertex++) {
     for (uint64_t edge_id = g.rowsIndices[vertex]; edge_id < g.rowsIndices[vertex+1]; edge_id++) {
 
       if (selected_edges[edge_id]) {
-        auto comp_id = FindDSU(d,vertex);
+        uint32_t comp_id = FindDSU(d,vertex);
         if (verbose)
           printf("Edge %u ~~> %u [%u] selected\n",
             vertex, g.endV[edge_id], comp_id);
@@ -48,12 +63,10 @@ void write_tree(graph g, char *selected_edges, DSU &d, const std::string fn) {
 
   uint64_t start = 0;
   uint64_t end;
-  auto ks = keys(component_edges);
-  std::sort(ks.begin(), ks.end(), [&trees_weight](int i, int j){
-    return trees_weight[i] > trees_weight[j];
-  });
+  std::vector<uint32_t> ks = keys(component_edges);
+  std::sort(ks.begin(), ks.end(), weight_comparator);
   for (uint32_t i = 0; i < ks.size(); i++) {
-    auto edges = component_edges[ks[i]];
+    std::vector<uint64_t> edges = component_edges[ks[i]];
     end = start + edges.size();
     fwrite(&start, sizeof(uint64_t), 1, f);
     fwrite(&end, sizeof(uint64_t), 1, f);
@@ -64,15 +77,15 @@ void write_tree(graph g, char *selected_edges, DSU &d, const std::string fn) {
     start = end;
   }
   for (uint32_t i = 0; i < ks.size(); i++) {
-    auto edges = component_edges[ks[i]];
+    std::vector<uint64_t> edges = component_edges[ks[i]];
     if (edges.empty()) {
       continue;
     }
     fwrite(edges.data(), sizeof(uint64_t), edges.size(), f);
     if (verbose) {
       printf("Comp %u: [", ks[i]);
-      for (auto &e: edges) {
-        printf("%lu, ", e);
+      for (uint64_t eid = 0; eid < edges.size(); eid++) {
+        printf("%lu, ", edges[eid]);
       }
       printf("]\n");
     }
@@ -96,33 +109,40 @@ graph read_graph(const std::string fn) {
 
   uint32_t n;
   uint64_t m;
-  fread(&n, sizeof(n), 1, f);
-  fread(&m, sizeof(m), 1, f);
+  size_t n_items = fread(&n, sizeof(n), 1, f);
+  assert(n_items == 1 && "failed to read g.n");
+  n_items = fread(&m, sizeof(m), 1, f);
+  assert(n_items == 1 && "failed to read g.n");
   
   char tmp;
-  fread(&tmp, sizeof(tmp), 1, f);
-  fread(&tmp, sizeof(tmp), 1, f);
+  n_items = fread(&tmp, sizeof(tmp), 1, f);
+  assert(n_items == 1 && "failed to read align");
+  n_items = fread(&tmp, sizeof(tmp), 1, f);
+  assert(n_items == 1 && "failed to read directed");
 
   uint64_t *rowsIndices = (uint64_t*)malloc((n+1)*sizeof(uint64_t));
   if (rowsIndices == NULL) {
     perror("failed to allocate rowsIndices");
     exit(3);
   }
-  fread(rowsIndices, sizeof(*rowsIndices), n+1, f);
+  n_items = fread(rowsIndices, sizeof(*rowsIndices), n+1, f);
+  assert(n_items == n+1 && "failed to read rowsIndices");
 
   uint32_t *endV = (uint32_t*)malloc(m*sizeof(uint32_t));
   if (endV == NULL) {
     perror("failed to allocate endV");
     exit(3);
   }
-  fread(endV, sizeof(*endV), m, f);
+  n_items = fread(endV, sizeof(*endV), m, f);
+  assert(n_items == m && "failed to read endV");
 
   double *weights = (double*)malloc(m*sizeof(double));
   if (weights == NULL) {
     perror("failed to allocate weights");
     exit(4);
   }
-  fread(weights, sizeof(*weights), m, f);
+  n_items = fread(weights, sizeof(double), m, f);
+  assert(n_items == m && "failed to read weights");
 
   long curr_pos = ftell(f);
   fseek(f, 0, SEEK_END);

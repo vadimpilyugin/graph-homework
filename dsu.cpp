@@ -24,16 +24,16 @@ void FreeDSU(DSU &d) {
 }
 
 void UnionDSU(DSU &d, uint32_t elem1, uint32_t elem2) {
-  auto root1 = FindDSU(d, elem1);
-  auto root2 = FindDSU(d, elem2);
+  uint32_t root1 = FindDSU(d, elem1);
+  uint32_t root2 = FindDSU(d, elem2);
   if (root1 == root2) {
     fprintf(stderr, "Already in the same component\n");
     return;
   }
   d.NComponents--;
   if (d.dsu[root1].rank == d.dsu[root2].rank) {
-    auto lesser_root = root1 < root2 ? root1 : root2;
-    auto greater_root = root1 < root2 ? root2 : root1;
+    uint32_t lesser_root = root1 < root2 ? root1 : root2;
+    uint32_t greater_root = root1 < root2 ? root2 : root1;
     d.dsu[greater_root].parent = lesser_root;
     d.dsu[lesser_root].rank = d.dsu[lesser_root].rank + 1;
     return;

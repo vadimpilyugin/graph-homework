@@ -54,7 +54,7 @@ loc_graph scatter_graph(graph g) {
   success = MPI_Bcast(&n, 1, MPI_UINT32_T, MASTER, MPI_COMM_WORLD);
   assert(success == MPI_SUCCESS && "broadcast of g.n failed");
   
-  success = MPI_Bcast(&m, 1, MPI_UINT32_T, MASTER, MPI_COMM_WORLD);
+  success = MPI_Bcast(&m, 1, MPI_UINT64_T, MASTER, MPI_COMM_WORLD);
   assert(success == MPI_SUCCESS && "broadcast of g.m failed");
   
   if (!i_am_the_master) {
@@ -72,6 +72,10 @@ loc_graph scatter_graph(graph g) {
   if (myrank < leftover) {
     my_batch_size++;
   }
+
+  if (verbose)
+    printf("%d: Info:\nm = %lu\nmy_batch_size = %lu\nleftover = %d\nnproc = %d\n=========\n",
+      myrank, m, my_batch_size, leftover, nproc);
 
   // allocate space for parts of endV and weights
   uint32_t *locEndV = (uint32_t *)malloc(
@@ -98,8 +102,8 @@ loc_graph scatter_graph(graph g) {
     // and that's it!
   } else {
     // else if the number of edges is not divisible by nproc
-    uint32_t *newEndV;
-    double *newWeights;
+    uint32_t *newEndV = NULL;
+    double *newWeights = NULL;
     uint64_t first_part_len = leftover * my_batch_size;
     uint64_t second_part_len = (nproc - leftover) * batch_size;
 
@@ -186,6 +190,10 @@ loc_graph scatter_graph(graph g) {
   loc_g.my_batch_size = my_batch_size;
   loc_g.start_i = start_idx(myrank, nproc, m);
   loc_g.end_i = start_idx(myrank+1, nproc, m);
+
+  if (verbose)
+    printf("%d: Filled loc_g parameters:\nstart_i = %lu\nend_i = %lu\n",
+      myrank, loc_g.start_i, loc_g.end_i);
   
   // determine the first vertex no
   // complexity: O(n)
@@ -198,6 +206,10 @@ loc_graph scatter_graph(graph g) {
       break;
     }
   }
+
+  if (verbose)
+    printf("%d: Found first vertex: %u\n",
+      myrank, loc_g.start_v);
 
   return loc_g;
 }
@@ -233,12 +245,12 @@ void print_local_vertices(loc_graph g) {
       printf("Start vertex: %u\n", g.start_v);
       printf("Start index: %lu\n", g.start_i);
       printf("Number of edges: %lu\n\n", g.my_batch_size);
-      for (auto vertex = g.start_v;;vertex++) {
-        auto edge_id = g.rowsIndices[vertex];
+      for (uint32_t vertex = g.start_v;;vertex++) {
+        uint64_t edge_id = g.rowsIndices[vertex];
         if (vertex == g.start_v) {
           edge_id = g.start_i;
         }
-        auto min_id = g.rowsIndices[vertex+1];
+        uint64_t min_id = g.rowsIndices[vertex+1];
         if (min_id > g.end_i) {
           min_id = g.end_i;
         }
@@ -371,7 +383,7 @@ char *iterations(loc_graph g, DSU &d) {
             struct_idx, curr_min.my_root,
             curr_min.other_root, curr_min.edge_id);
         } else {
-          printf("%d: setting mins[%d] = (%lf, %u ~~> %u [%u], %lu)\n",
+          printf("%d: setting mins[%d] = (%f, %u ~~> %u [%u], %lu)\n",
             g.myrank,
             struct_idx, curr_min.weight, curr_min.my_root,
             curr_min.other_root, g.locEndV[curr_min.edge_id], curr_min.edge_id);
@@ -415,7 +427,7 @@ char *iterations(loc_graph g, DSU &d) {
           printf("Component %u: +inf, on proc %d\n",
             i, out_min_loc[i].rank);
         } else {
-          printf("Component %u: %lf, on proc %d\n",
+          printf("Component %u: %f, on proc %d\n",
             i, out_min_loc[i].w, out_min_loc[i].rank);
         }
       }
@@ -427,11 +439,11 @@ char *iterations(loc_graph g, DSU &d) {
     // set minimum components
     if (verbose)
       for (uint32_t i = 0; i < mins_len; i++) {
-        auto my_root = mins[i].my_root;
+        uint32_t my_root = mins[i].my_root;
         if (out_min_loc[my_root].rank != g.myrank && 
           out_min_loc[my_root].w != DBL_MAX) {
 
-          printf("%d: minimum edge %u ~~> %u [weight %lf] was not selected, %d != %d\n",
+          printf("%d: minimum edge %u ~~> %u [weight %f] was not selected, %d != %d\n",
             g.myrank, mins[i].my_root, mins[i].other_root,
             mins[i].weight, out_min_loc[mins[i].my_root].rank, g.myrank);
 
@@ -441,14 +453,14 @@ char *iterations(loc_graph g, DSU &d) {
             printf("%d: minimum edge %u ~~> %u [weight +inf] was selected\n",
               g.myrank, mins[i].my_root, mins[i].other_root);
           } else {
-            printf("%d: minimum edge %u ~~> %u [weight %lf] was selected\n",
+            printf("%d: minimum edge %u ~~> %u [weight %f] was selected\n",
               g.myrank, mins[i].my_root, mins[i].other_root, mins[i].weight);
           }
 
         }
       }
     for (uint32_t i = 0; i < mins_len; i++) {
-      auto my_root = mins[i].my_root;
+      uint32_t my_root = mins[i].my_root;
       if (out_min_loc[my_root].rank == g.myrank &&
         out_min_loc[my_root].w != DBL_MAX) {
 
@@ -484,14 +496,14 @@ char *iterations(loc_graph g, DSU &d) {
 
     // break loops
     for (uint32_t i = 0; i < mins_len; i++) {
-      auto my_root = mins[i].my_root;
+      uint32_t my_root = mins[i].my_root;
       if (out_min_loc[my_root].rank == g.myrank &&
         out_min_loc[my_root].w != DBL_MAX) {
 
-        auto other_root = mins[i].other_root;
-        auto other_sel = out_selected[other_root];
+        uint32_t other_root = mins[i].other_root;
+        uint32_t other_sel = out_selected[other_root];
         if (other_sel == my_root) {
-          auto min_sel = my_root;
+          uint32_t min_sel = my_root;
           if (my_root > other_root) {
             min_sel = other_root;
           }
@@ -574,8 +586,8 @@ char *gather_selected(loc_graph g, char *loc_selected_edges) {
   int success;
 
   uint64_t m = g.m;
-  auto myrank = g.myrank;
-  auto nproc = g.nproc;
+  int myrank = g.myrank;
+  int nproc = g.nproc;
   uint64_t batch_size = m / nproc;
   int leftover = m % nproc;
   uint64_t my_batch_size = batch_size;
@@ -583,7 +595,7 @@ char *gather_selected(loc_graph g, char *loc_selected_edges) {
     my_batch_size++;
   }
 
-  char *selected_edges;
+  char *selected_edges = NULL;
   if (myrank == MASTER) {
     selected_edges = (char *)malloc(m * sizeof(char));
     assert(selected_edges && "malloc of selected_edges failed");
@@ -599,7 +611,7 @@ char *gather_selected(loc_graph g, char *loc_selected_edges) {
     // and that's it!
   } else {
     // else if the number of edges is not divisible by nproc
-    char *newSelectedEdges;
+    char *newSelectedEdges = NULL;
     uint64_t first_part_len = leftover * my_batch_size;
     uint64_t second_part_len = (nproc - leftover) * batch_size;
 

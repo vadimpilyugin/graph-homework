@@ -32,8 +32,8 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  const char *input_fn;
-  const char *output_fn;
+  const char *input_fn = NULL;
+  const char *output_fn = NULL;
   for (int i = 0; i < argc; i++) {
     if (!strcmp(argv[i], "-input")) {
       input_fn = argv[i+1];
@@ -54,7 +54,7 @@ int main(int argc, char **argv)
 
   if (myrank == MASTER) {
     g = read_graph(input_fn);
-    // output_graph_info(g);
+    output_graph_info(g);
     // is_multigraph(g);
     // is_undirected(g);
   }
