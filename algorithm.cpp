@@ -58,7 +58,7 @@ loc_graph scatter_graph(graph g) {
   assert(success == MPI_SUCCESS && "broadcast of g.m failed");
   
   if (!i_am_the_master) {
-    rowsIndices = (uint64_t *)malloc((n+1) * sizeof(uint64_t));
+    MPI_Alloc_mem((n+1) * sizeof(uint64_t), MPI_INFO_NULL, &rowsIndices);
     assert(rowsIndices && "malloc of rowsIndices failed");
   }
   
@@ -78,11 +78,11 @@ loc_graph scatter_graph(graph g) {
       myrank, m, my_batch_size, leftover, nproc);
 
   // allocate space for parts of endV and weights
-  uint32_t *locEndV = (uint32_t *)malloc(
-    my_batch_size * sizeof(uint32_t));
+  uint32_t *locEndV = NULL;
+  MPI_Alloc_mem(my_batch_size * sizeof(uint32_t), MPI_INFO_NULL, &locEndV);
   assert(locEndV && "malloc of locEndV failed");
-  double *locWeights = (double *)malloc(
-    my_batch_size * sizeof(double));
+  double *locWeights = NULL;
+  MPI_Alloc_mem(my_batch_size * sizeof(double), MPI_INFO_NULL, &locWeights);
   assert(locWeights && "malloc of locWeights failed");
 
   // scatter endV and weights vectors to processes
@@ -120,9 +120,9 @@ loc_graph scatter_graph(graph g) {
       assert(success == MPI_SUCCESS && "send of g.weights failed");
     }
     if (myrank == leftover) {
-      newEndV = (uint32_t *)malloc(second_part_len * sizeof(uint32_t));
+      MPI_Alloc_mem(second_part_len * sizeof(uint32_t), MPI_INFO_NULL, &newEndV);
       assert(newEndV && "malloc of newEndV failed");
-      newWeights = (double *)malloc(second_part_len * sizeof(double));
+      MPI_Alloc_mem(second_part_len * sizeof(double), MPI_INFO_NULL, &newWeights);
       assert(newWeights && "malloc of newWeights failed");
       success = MPI_Recv(
         newEndV, second_part_len, MPI_UINT32_T,
@@ -293,14 +293,15 @@ typedef struct {
 } MinLocItem;
 
 char *iterations(loc_graph g, DSU &d) {
-  MPI_Barrier(MPI_COMM_WORLD);
   uint32_t n = g.n;
   
   // allocate pointers array and array of shortest connections
-  uint32_t *ptrs = (uint32_t *)malloc(n * sizeof(uint32_t));
+  uint32_t *ptrs;
+  MPI_Alloc_mem(n * sizeof(uint32_t), MPI_INFO_NULL, &ptrs);
   assert(ptrs && "malloc of ptrs failed");
 
-  MinConn *mins = (MinConn *)malloc(n * sizeof(MinConn));
+  MinConn *mins;
+  MPI_Alloc_mem(n * sizeof(MinConn), MPI_INFO_NULL, &mins);
   assert(mins && "malloc of mins failed");
 
   uint32_t mins_len = 0;
@@ -309,23 +310,28 @@ char *iterations(loc_graph g, DSU &d) {
   // mapping uint32_t my_root ~~> struct MinConn
 
   // array for determining the shortest edges across all processes
-  MinLocItem *min_loc = (MinLocItem *)malloc(n * sizeof(MinLocItem));
+  MinLocItem *min_loc;
+  MPI_Alloc_mem(n * sizeof(MinLocItem), MPI_INFO_NULL, &min_loc);
   assert(min_loc && "malloc of min_loc failed");
 
   // array for receiving reduced min_loc
-  MinLocItem *out_min_loc = (MinLocItem *)malloc(n * sizeof(MinLocItem));
+  MinLocItem *out_min_loc;
+  MPI_Alloc_mem(n * sizeof(MinLocItem), MPI_INFO_NULL, &out_min_loc);
   assert(out_min_loc && "malloc of out_min_loc failed");
 
   // array for determining the chosen components for each component on each iteration
-  uint32_t *selected_comps = (uint32_t *)malloc(n * sizeof(uint32_t));
+  uint32_t *selected_comps = NULL;
+  MPI_Alloc_mem(n * sizeof(uint32_t), MPI_INFO_NULL, &selected_comps);
   assert(selected_comps && "malloc of selected_comps failed");
   
   // array for receiving selected_comps
-  uint32_t *out_selected = (uint32_t *)malloc(n * sizeof(uint32_t));
+  uint32_t *out_selected = NULL;
+  MPI_Alloc_mem(n * sizeof(uint32_t), MPI_INFO_NULL, &out_selected);
   assert(out_selected && "malloc of out_selected failed");
 
   // array for keeping track of chosen connections
-  char *selected_edges = (char *)calloc(g.my_batch_size, sizeof(char));
+  char *selected_edges = NULL;
+  MPI_Alloc_mem(g.my_batch_size * sizeof(char), MPI_INFO_NULL, &selected_edges);
   assert(selected_edges && "calloc of selected_edges failed");
 
   for (uint32_t iter = 0; ; iter++) {
@@ -570,12 +576,12 @@ char *iterations(loc_graph g, DSU &d) {
     }
   }
 
-  free(ptrs);
-  free(mins);
-  free(min_loc);
-  free(out_min_loc);
-  free(selected_comps);
-  free(out_selected);
+  MPI_Free_mem(ptrs);
+  MPI_Free_mem(mins);
+  MPI_Free_mem(min_loc);
+  MPI_Free_mem(selected_comps);
+  MPI_Free_mem(out_min_loc);
+  MPI_Free_mem(out_selected);
 
   return selected_edges;
 }
@@ -597,7 +603,7 @@ char *gather_selected(loc_graph g, char *loc_selected_edges) {
 
   char *selected_edges = NULL;
   if (myrank == MASTER) {
-    selected_edges = (char *)malloc(m * sizeof(char));
+    MPI_Alloc_mem(m * sizeof(char), MPI_INFO_NULL, &selected_edges);
     assert(selected_edges && "malloc of selected_edges failed");
   }
 
@@ -618,7 +624,7 @@ char *gather_selected(loc_graph g, char *loc_selected_edges) {
     // perform two-step gather
     // allocate second-part vector
     if (myrank == leftover) {
-      newSelectedEdges = (char *)malloc(second_part_len * sizeof(char));
+      MPI_Alloc_mem(second_part_len * sizeof(char), MPI_INFO_NULL, &newSelectedEdges);
       assert(newSelectedEdges && "malloc of newSelectedEdges failed");
     }
     // first step: #leftover..#nproc-1 ~~> #leftover
@@ -651,7 +657,7 @@ char *gather_selected(loc_graph g, char *loc_selected_edges) {
     }
 
     if (myrank == leftover) {
-      free(newSelectedEdges);
+      MPI_Free_mem(newSelectedEdges);
     }
   }
   return selected_edges;

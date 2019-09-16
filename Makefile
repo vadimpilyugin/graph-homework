@@ -4,4 +4,4 @@ main: *.cpp
                 -Wtype-limits -Wempty-body -Wlogical-op \
                 -Wctor-dtor-privacy -Wno-reorder\
                 -Wnon-virtual-dtor -Wstrict-null-sentinel  \
-                -Woverloaded-virtual -Wsign-promo -Wextra -pedantic -Werror --std=c++11 -O3 -o main *.cpp
+                -Woverloaded-virtual -Wsign-promo -Wextra -pedantic -Werror --std=c++11 -O5 -o main *.cpp

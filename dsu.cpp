@@ -4,23 +4,29 @@
 #include <cstdint>
 
 #include "dsu.h"
+#include "mpi.h"
 
 DSU InitDSU(uint32_t n) {
-  Elem *ptr = (Elem *)malloc(n * sizeof(Elem));
+  Elem *ptr = NULL;
+  MPI_Alloc_mem(n * sizeof(Elem), MPI_INFO_NULL, &ptr);
   assert(ptr && "malloc of dsu failed");
-  for (uint32_t i = 0; i < n; i++) {
-    ptr[i].parent = i;
-    ptr[i].rank = 0;
-  }
+  DSU d;
+  d.dsu = ptr;
+  d.size = n;
+  ResetDSU(d);
+  return d;
+}
 
-  DSU dsu;
-  dsu.dsu = ptr;
-  dsu.NComponents = n;
-  return dsu;
+void ResetDSU(DSU &d) {
+  d.NComponents = d.size;
+  for (uint32_t i = 0; i < d.size; i++) {
+    d.dsu[i].parent = i;
+    d.dsu[i].rank = 0;
+  }
 }
 
 void FreeDSU(DSU &d) {
-  free(d.dsu);
+  MPI_Free_mem(d.dsu);
 }
 
 void UnionDSU(DSU &d, uint32_t elem1, uint32_t elem2) {

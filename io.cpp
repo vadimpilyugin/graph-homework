@@ -8,6 +8,7 @@
 #include <algorithm>
 
 #include "io.h"
+#include "mpi.h"
 
 extern bool verbose;
 
@@ -120,7 +121,8 @@ graph read_graph(const std::string fn) {
   n_items = fread(&tmp, sizeof(tmp), 1, f);
   assert(n_items == 1 && "failed to read directed");
 
-  uint64_t *rowsIndices = (uint64_t*)malloc((n+1)*sizeof(uint64_t));
+  uint64_t *rowsIndices = NULL;
+  MPI_Alloc_mem((n+1)*sizeof(uint64_t), MPI_INFO_NULL, &rowsIndices);
   if (rowsIndices == NULL) {
     perror("failed to allocate rowsIndices");
     exit(3);
@@ -128,7 +130,8 @@ graph read_graph(const std::string fn) {
   n_items = fread(rowsIndices, sizeof(*rowsIndices), n+1, f);
   assert(n_items == n+1 && "failed to read rowsIndices");
 
-  uint32_t *endV = (uint32_t*)malloc(m*sizeof(uint32_t));
+  uint32_t *endV = NULL;
+  MPI_Alloc_mem(m*sizeof(uint32_t), MPI_INFO_NULL, &endV);
   if (endV == NULL) {
     perror("failed to allocate endV");
     exit(3);
@@ -136,7 +139,8 @@ graph read_graph(const std::string fn) {
   n_items = fread(endV, sizeof(*endV), m, f);
   assert(n_items == m && "failed to read endV");
 
-  double *weights = (double*)malloc(m*sizeof(double));
+  double *weights;
+  MPI_Alloc_mem(m*sizeof(double), MPI_INFO_NULL, &weights);
   if (weights == NULL) {
     perror("failed to allocate weights");
     exit(4);
