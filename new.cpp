@@ -46,8 +46,10 @@ char *repeated_boruvka(int n_iter, loc_graph g, DSU &d, const char *input_fn) {
   char *loc_selected_edges = NULL;
   double *perf = NULL;
   MPI_Alloc_mem(n_iter * sizeof(double), MPI_INFO_NULL, &perf);
+  assert(perf && "perf malloc failed");
   double *run_times = NULL;
   MPI_Alloc_mem(n_iter * sizeof(double), MPI_INFO_NULL, &run_times);
+  assert(run_times && "run_times malloc failed");
 
   for (int i = 0; i < n_iter; i++) {
     if (g.myrank == MASTER) {
@@ -83,9 +85,9 @@ char *repeated_boruvka(int n_iter, loc_graph g, DSU &d, const char *input_fn) {
   MPI_Barrier(MPI_COMM_WORLD);
   print0(g.myrank,"\n----------------\nalgorithm iterations finished.\n");
 
-  double min_perf, max_perf, avg_perf;
+  double min_perf = 0, max_perf = 0, avg_perf = 0;
   double avg_run_time = 0;
-  double global_min_perf, global_max_perf, global_avg_perf;
+  double global_min_perf = 0, global_max_perf = 0, global_avg_perf = 0;
   double global_avg_run_time = 0;
   max_perf = avg_perf = 0;
   min_perf = DBL_MAX;     
@@ -97,14 +99,18 @@ char *repeated_boruvka(int n_iter, loc_graph g, DSU &d, const char *input_fn) {
   }
   avg_perf /= n_iter;
   avg_run_time /= n_iter;
+  MPI_Barrier(MPI_COMM_WORLD);
   
   MPI_Reduce(&min_perf, &global_min_perf, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
   MPI_Reduce(&max_perf, &global_max_perf, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
   MPI_Reduce(&avg_perf, &global_avg_perf, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
   MPI_Reduce(&avg_run_time, &global_avg_run_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-  print0(g.myrank, "average run time: %.4f secs\n", global_avg_run_time);
-  print0(g.myrank,"%s: vertices = %u edges = %lu trees = %zu n_iter = %d MST performance min = %.4f avg = %4f max = %.4f MTEPS\n", input_fn, g.n, g.m, d.NComponents, n_iter, min_perf, avg_perf, max_perf);
+  MPI_Barrier(MPI_COMM_WORLD);
+  print0(g.myrank, "%s: nproc = %d; time = %.4f; vertices = %u; edges = %lu; trees = %u; n_iter = %d; MST performance min = %.4f; avg = %4f; max = %.4f\n",
+    input_fn, g.nproc, global_avg_run_time, g.n, g.m, d.NComponents,
+    n_iter, min_perf, avg_perf, max_perf);
   print0(g.myrank,"Performance = %.4f MTEPS\n", avg_perf);
+  MPI_Barrier(MPI_COMM_WORLD);
 
   MPI_Free_mem(perf);
   MPI_Free_mem(run_times);
