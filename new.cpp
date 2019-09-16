@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstdarg>
+#include <cassert>
 #include <cfloat>
 #include <map>
 #include <algorithm>
@@ -52,18 +53,27 @@ char *repeated_boruvka(int n_iter, loc_graph g, DSU &d, const char *input_fn) {
     if (g.myrank == MASTER) {
       printf("iteration %d: ",i);
     }
-    if (loc_selected_edges != NULL) {
-      // free the previous iteration's selected edges
-      MPI_Free_mem(loc_selected_edges);
-    }
     // reset the dsu
     ResetDSU(d);
     
     MPI_Barrier(MPI_COMM_WORLD);
 
     double start_ts = MPI_Wtime();
-    loc_selected_edges = iterations(g, d);
+    char *tmp = iterations(g, d);
     double finish_ts = MPI_Wtime();
+
+    if (loc_selected_edges != NULL) {
+      // check if the answers are the same
+      for (uint32_t j = 0; j < g.my_batch_size; j++) {
+        if (loc_selected_edges[i] != tmp[i]) {
+          printf("%d: loc_selected_edges[%u] = %d\ntmp[%u] = %d\n",
+            g.myrank, i, loc_selected_edges[i], i, tmp[i]);
+          assert(0 && "new answer is different");
+        }
+      }
+      MPI_Free_mem(loc_selected_edges);
+    }
+    loc_selected_edges = tmp;
 
     double time = finish_ts - start_ts;
     perf[i] = time * double(g.m) / MILLION;

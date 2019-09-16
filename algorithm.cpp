@@ -333,6 +333,9 @@ char *iterations(loc_graph g, DSU &d) {
   char *selected_edges = NULL;
   MPI_Alloc_mem(g.my_batch_size * sizeof(char), MPI_INFO_NULL, &selected_edges);
   assert(selected_edges && "calloc of selected_edges failed");
+  for (uint32_t i = 0; i < g.my_batch_size; i++) {
+    selected_edges[i] = 0;
+  }
 
   for (uint32_t iter = 0; ; iter++) {
     if (verbose)
